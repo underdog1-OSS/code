@@ -1,15 +1,13 @@
 %% 论文 Example 1：多次随机实验，绘制瞬时频率 MSE 随 SNR 变化的曲线
 % 在编辑器中点击“运行”；第一次可把下面的 preset 改为 'quick'。
 % 'paper'：每个 SNR 1000 次；'quick'：每个 SNR 50 次，用于检查流程。
-% 本代码绘制 WD 峰值法和各个 M 下的 WD-RANSAC；不包含 Viterbi 曲线。
+% 本代码绘制 WD 峰值法和各个 M 下的原始 WD-RANSAC 基线。
 % 原文没有交代的参数分布、高斯抽样参数等，已在 wdr_config.m 中注明。
 % 运行中可在命令行窗口看到进度，无需在那里输入任何命令。
 % 计算结果保留在工作区 result 变量中，不自动生成数据、图片或日志文件。
 % Open and click Run. The full paper-sized experiment can take many minutes.
 % To learn the code first, change preset to 'quick' (50 trials at each SNR).
 % This implements WD maxima and WD-RANSAC, including M=10 from Fig. 1.
-% The Viterbi comparison is not implemented: its transition model/penalties
-% are not specified in this paper. Thus this is not every curve in Fig. 1.
 % See wdr_config.m for the explicitly documented choices where the paper
 % omits details. Do not interpret this as the author's original source code.
 % No MAT, CSV, figure, log, or other output files are automatically written.
