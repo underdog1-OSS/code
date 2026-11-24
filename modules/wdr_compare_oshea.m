@@ -1,6 +1,6 @@
 function result = wdr_compare_oshea(cfg)
-% 在相同数据和抽样预算下比较原 WD-RANSAC 与逐候选 O'Shea 精化版本。
-% 两组均取全频段最大峰；精化组逐对比较原直线和精化直线的相干得分。
+% 比较原 WD-RANSAC 与最终最高分直线精化一次、再按评分择优的版本。
+% 两组均取全频段最大峰；精化组仅在原基线搜索结束后做一次后处理。
 validateattributes(cfg.trials,{'numeric'},{'scalar','integer','positive','<',100000});
 validateattributes(cfg.mList,{'numeric'},{'scalar','integer','positive'});
 validateattributes(cfg.osheaWindowLength,{'numeric'}, ...
@@ -9,7 +9,7 @@ assert(mod(cfg.osheaWindowLength,2)==1,'移动平均长度必须是奇数。');
 nTrials = cfg.trials; nSnr = numel(cfg.snrDb);
 result.cfg = cfg;
 result.snrDb = cfg.snrDb(:);
-result.methodNames = {'原 WD-RANSAC','WD-RANSAC + O''Shea 评分择优'};
+result.methodNames = {'原 WD-RANSAC','WD-RANSAC + 最优直线精化择优'};
 result.error = zeros(nTrials,nSnr,2);
 result.estimatedA = zeros(nTrials,nSnr,2);
 result.estimatedB = zeros(nTrials,nSnr,2);
@@ -56,7 +56,7 @@ for s = 1:nSnr
             end
             result.estimationSeconds(trial,s,m) = toc(timer);
             % 两组总时间都包含 WD、全频取峰、抽样、拟合及评分；
-            % 精化组额外包含全部候选的去啁啾、滤波、展开、重估和前后评分比较。
+            % 精化组也完成原始候选搜索，再额外计入胜出直线的一次精化与评分比较。
             result.totalSeconds(trial,s,m) = commonSeconds+result.estimationSeconds(trial,s,m);
             result.error(trial,s,m) = mean((estimate.omega-signal.omegaTrue).^2);
             result.estimatedA(trial,s,m) = estimate.a;
