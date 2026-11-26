@@ -32,5 +32,5 @@ if ~isfinite(a) || ~isfinite(b)
     return;
 end
 diagnostic.applied = true;
-diagnostic.reason = '使用输入峰点的累计权重完成一次 WLS。';
+diagnostic.reason = '使用输入峰点及本次指定的权重完成一次 WLS。';
 end
