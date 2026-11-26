@@ -2,15 +2,21 @@ function estimate = wdr_consensus_estimate(x,time,ridgeTime,ridge,cfg,prefixPair
 % 一致集反馈抽样和末尾历史权重 WLS：总共仍只评价 M 个随机候选。
 % 最佳模型只由原始全信号的相干得分 J 决定，不按一致点数量选择。
 % B 次初始化结束后计分一次；以后仅在最佳 J 刷新时计分。
+% 后续按固定周期插入全局探索，其余从当前一致集均匀抽样；不增加总预算。
 % 权重不改变抽样或固定的一致集门限；最终仅在搜索结束时的局部集内重估。
 % 最终 WLS 额外计算一次全信号 J，仅严格优于搜索最佳模型时接受。
 % 随机候选仍为 M 个；有效 WLS 使总 J 评价次数增加一次。
 % cfg.consensusTau 必须由实际频率网格计算，不是以 Hz 或编号直接代入。
 x = x(:); time = time(:); ridgeTime = ridgeTime(:); ridge = ridge(:);
 M = cfg.mList; B = cfg.initialBudget; tau = cfg.consensusTau;
+explorationPeriod = 0; % 为零时恢复原先后续全部局部抽样的版本。
+if isfield(cfg,'consensusGlobalPeriod')
+    explorationPeriod = cfg.consensusGlobalPeriod;
+end
 validateattributes(M,{'numeric'},{'scalar','integer','positive'});
 validateattributes(B,{'numeric'},{'scalar','integer','positive','<',M});
 validateattributes(tau,{'numeric'},{'scalar','real','finite','positive'});
+validateattributes(explorationPeriod,{'numeric'},{'scalar','integer','nonnegative','finite'});
 assert(numel(x)==numel(time) && numel(ridge)==numel(ridgeTime), ...
     '信号、时间轴和峰点的维度不一致。');
 assert(numel(ridge)>=2 && all(diff(ridgeTime)>0) && all(isfinite(ridge)), ...
@@ -42,6 +48,7 @@ bestScoreHistory = zeros(1,M);
 bestScoreHistory(1:B) = cummax(scores(1:B));
 setSizeBeforeSampling = zeros(1,M-B);
 fallbackFlags = false(1,M-B);
+globalExplorationFlags = false(1,M-B);
 updateFlags = false(1,M-B);
 halfTimeSquared = time.^2/2;
 
@@ -50,7 +57,12 @@ for iteration = B+1:M
     step = iteration-B;
     nLocal = numel(members);
     setSizeBeforeSampling(step) = nLocal;
-    if nLocal>=2
+    if explorationPeriod>0 && mod(step,explorationPeriod)==0
+        % 预定全局探索不要求局部集退化，给错误初始化保留新的全局搜索机会。
+        % 仍使用原高斯全局抽样，且本轮只生成和评价一个候选。
+        pair = wdr_sample_pairs(numel(ridge),1,cfg);
+        globalExplorationFlags(step) = true;
+    elseif nLocal>=2
         % 从集合中均匀抽两个不同元素；跨候选可以重复抽到同一对点。
         first = randi(nLocal);
         second = randi(nLocal-1);
@@ -163,6 +175,13 @@ estimate.updateFlags = updateFlags;
 estimate.updateCount = sum(updateFlags);
 estimate.fallbackFlags = fallbackFlags;
 estimate.fallbackCount = sum(fallbackFlags);
-estimate.localCandidateCount = M-B-estimate.fallbackCount;
+estimate.globalExplorationFlags = globalExplorationFlags;
+estimate.globalExplorationPeriod = explorationPeriod;
+estimate.globalExplorationCount = sum(globalExplorationFlags);
+estimate.globalExplorationUpdateCount = sum(updateFlags & globalExplorationFlags);
+estimate.localUpdateCount = sum(updateFlags & ~globalExplorationFlags & ~fallbackFlags);
+estimate.fallbackUpdateCount = sum(updateFlags & fallbackFlags);
+estimate.localCandidateCount = M-B-estimate.fallbackCount-estimate.globalExplorationCount;
+estimate.globalCandidateCount = B+estimate.globalExplorationCount+estimate.fallbackCount;
 estimate.tau = tau;
 end

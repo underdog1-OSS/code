@@ -1,5 +1,6 @@
-%% 原 WD-RANSAC 与“一致集反馈抽样＋最终局部集WLS＋J择优”，打开后点击运行。
+%% 原 WD-RANSAC 与“全局探索＋一致集反馈＋最终局部集WLS＋J择优”。
 % 两种方法各评价3000个随机候选，前1000对点共用；改进方法末尾额外做一次WLS。
+% 后2000次每隔5次安排一次全局探索：400次全局、1600次局部，不另加候选。
 % 权重只在初始化最佳模型确定后和最佳J刷新时累加，不参与局部随机抽样。
 % 末尾WLS只使用最终局部集中的点，保留这些点各自的累计权重。
 % 有效WLS额外计算一次J；比本方法搜索结束时的最佳J严格更高才接受，平分保留原模型。
@@ -15,6 +16,10 @@ cfg.snrDb = -15:5:5;             % -15、-10、-5、0、5 dB。
 cfg.mList = 3000;
 cfg.initialBudget = 1000;        % 包含在3000次内，后续只有2000次。
 cfg.consensusTauBins = 3;        % 固定一致集门限tau=3*实际DeltaOmega。
+cfg.consensusGlobalPeriod = 5;  % 后段每5次有1次全局探索；改为0可恢复纯局部版本。
+cfg.referenceSeed = cfg.seed;
+cfg.seed = cfg.referenceSeed+40000000; % 新版本用独立噪声验证；两种方法仍共用同一试验数据。
+% 如需回放旧图的样本，可将上一行改为 cfg.seed=cfg.referenceSeed。
 % 当前DeltaOmega=pi，tau=3*pi；单位沿用原代码的角频率/时间单位。
 % 一致集门限保持固定；累计权重的三个门限按论文规则动态调整。
 % 搜索中最佳模型始终按J判优；权重只用于末尾最终局部集的多点重估。
@@ -29,6 +34,12 @@ warmupSeconds = warmup.meanTotalSeconds;
 clear warmup;
 fprintf('正式统计：%d个SNR，每点%d次；M=%d，B=%d。\n', ...
     numel(cfg.snrDb),cfg.trials,cfg.mList,cfg.initialBudget);
+plannedGlobal = 0;
+if cfg.consensusGlobalPeriod>0
+    plannedGlobal = floor((cfg.mList-cfg.initialBudget)/cfg.consensusGlobalPeriod);
+end
+fprintf('后%d个候选：预定全局探索%d次，其余%d次为局部抽样（退化时才回退）。\n', ...
+    cfg.mList-cfg.initialBudget,plannedGlobal,cfg.mList-cfg.initialBudget-plannedGlobal);
 
 %% 3. 正式统计：所有试验参加直接误差平均，真值只用于离线评价。
 result = wdr_consensus_compare(cfg);
@@ -47,11 +58,13 @@ result.warmupSeconds = warmupSeconds;
 % result.refitWeights：末尾WLS实际使用的权重，最终局部集之外为零。
 % result.refitPositiveWeightCount：末尾WLS实际参与拟合的正权重点数。
 % result.examples：每个SNR的一次完整候选、计分门限与加分历史。
+% result.globalExplorationCount：预定全局探索次数，与fallbackCount分开记录。
+% result.globalExplorationUpdateCount：全局探索刷新最佳J的次数，用于检查纠偏机会。
 
 %% 4. 每个图窗最多4个子图，当前9个子图自动分成3个图窗（4+4+1）。
 % 逐次误差横轴是Monte Carlo试验编号，不是单次搜索中的3000个候选编号。
 % 图窗1为4个汇总图；后续图窗按SNR排列逐次误差，每窗最多4个。
-% 手动保存图片建议按图窗编号命名：WD_RANSAC_Diagnostics_1.svg等。
+% 手动保存图片建议按图窗编号命名：WD_RANSAC_GlobalExplore_Diagnostics_1.svg等。
 nSnr = numel(result.snrDb);
 nPlot = nSnr+4;
 nFigure = ceil(nPlot/4);
@@ -75,8 +88,8 @@ for page = 1:nFigure
         plotAxes(panel) = nexttile(layouts{page});
     end
     title(layouts{page},sprintf( ...
-        '第%d/%d窗；M=%d；B=%d；tau=%.6g；最终局部集WLS＋J择优；每个SNR %d次', ...
-        page,nFigure,cfg.mList,cfg.initialBudget,result.tau,cfg.trials));
+        '第%d/%d窗；M=%d；B=%d；后段全局%d次；tau=%.6g；局部集WLS＋J择优；每SNR %d次', ...
+        page,nFigure,cfg.mList,cfg.initialBudget,plannedGlobal,result.tau,cfg.trials));
 end
 initialColor = [0.6 0.15 0.75];
 beforeColor = [0 0.35 0.85];
@@ -138,9 +151,16 @@ end
 ax = plotAxes(4);
 plot(ax,result.snrDb,mean(result.updateCount,1).','-o', ...
     'Color',[0.5 0.15 0.7],'LineWidth',1.5);
+hold(ax,'on');
+plot(ax,result.snrDb,mean(result.globalExplorationUpdateCount,1).','k--s','LineWidth',1.2);
 grid(ax,'on'); xlabel(ax,'SNR / dB'); ylabel(ax,'平均最佳J刷新次数');
-title(ax,sprintf('后%d次局部搜索的J纪录更新',cfg.mList-cfg.initialBudget));
+title(ax,sprintf('后%d次搜索的J纪录更新',cfg.mList-cfg.initialBudget));
+legend(ax,{'全部刷新','其中由全局探索刷新'},'Location','best','FontSize',8);
 disp(result.summary);
+fprintf('全局探索、局部抽样和异常回退分别计数：\n');
+disp(result.samplingSummary);
+fprintf('粗差诊断：RMSE超过一个频率格点的次数，以及这些试验对改进算法总MSE的贡献：\n');
+disp(result.grossErrorSummary);
 fprintf('\n完成：%d个子图已分为%d个图窗，每窗最多4个；结果保留在工作区result。\n', ...
     nPlot,nFigure);
 fprintf('改进算法各SNR的异常全局回退总次数：\n');
